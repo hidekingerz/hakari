@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { resolveConfig } from "../src/config.js";
-import { run } from "../src/runner.js";
+import { BrowserLaunchError, run } from "../src/runner.js";
 import type { HarBenchConfig, Summary } from "../src/types.js";
 
 let server: Server;
@@ -161,6 +161,29 @@ describe("run", () => {
     expect(result.summary.runs).toHaveLength(1);
     expect(result.summary.runs[0].status).toBe("ok");
     expect(result.summary.meta.stopReason).toBe("signal");
+  });
+
+  test("ブラウザの起動に失敗すると BrowserLaunchError で reject し、summary.json に fatal を記録する", async () => {
+    // webkit はこの環境に未インストールなので、起動失敗を確実に再現できる。
+    const fixedNow = new Date("2024-01-01T00:00:00.000Z");
+    let thrown: unknown;
+    try {
+      await run({
+        config: config({ browser: "webkit" }),
+        version: "0.0.0-test",
+        now: () => fixedNow,
+      });
+    } catch (e) {
+      thrown = e;
+    }
+
+    expect(thrown).toBeInstanceOf(BrowserLaunchError);
+    expect((thrown as Error).message).toContain("pnpm exec playwright install");
+
+    const outDir = path.join(tmpDir, fixedNow.toISOString().replace(/:/g, "-"));
+    const onDisk = JSON.parse(await readFile(path.join(outDir, "summary.json"), "utf8")) as Summary;
+    expect(onDisk.meta.stopReason).toBe("fatal");
+    expect(onDisk.meta.finishedAt).not.toBeNull();
   });
 
   test("interval の分だけ実行間隔が空く", async () => {

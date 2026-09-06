@@ -57,11 +57,12 @@ export async function run(options: RunOptions): Promise<RunResult> {
   };
   await writeSummary(outDir, summary);
 
-  let browser = await launchBrowser(config);
+  let browser: Browser | undefined;
   let relaunched = false;
   let stopReason: StopReason | null = null;
 
   try {
+    browser = await launchBrowser(config);
     for (;;) {
       stopReason = shouldStop(
         {
@@ -102,7 +103,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     summary.meta.finishedAt = now().toISOString();
     summary.meta.stopReason = stopReason ?? "fatal";
     await writeSummary(outDir, summary);
-    if (browser.isConnected()) await browser.close();
+    if (browser?.isConnected()) await browser.close();
   }
 
   return { outDir, summary };
