@@ -11,6 +11,9 @@ importers:
       '@biomejs/biome':
         specifier: ^2.5.12
         version: 2.5.12
+      '@hakari/har-bench':
+        specifier: workspace:*
+        version: link:packages/har-bench
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

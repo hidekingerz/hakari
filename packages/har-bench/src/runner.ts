@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
-import { type Browser, chromium, firefox, webkit } from "playwright";
+import { type Browser, type BrowserContext, chromium, firefox, webkit } from "playwright";
 import { aggregate } from "./aggregate.js";
 import { summarizeHar } from "./har-summary.js";
 import { shouldStop } from "./stop.js";
@@ -97,7 +97,22 @@ export async function run(options: RunOptions): Promise<RunResult> {
           (runSummary.error ? ` - ${runSummary.error}` : ""),
       );
 
-      if (config.interval > 0) await sleep(config.interval, signal);
+      // クラッシュから正常に復帰できたら、次のクラッシュでもまた 1 回だけ再起動できるようにする。
+      if (browser.isConnected()) relaunched = false;
+
+      if (config.interval > 0) {
+        const next = shouldStop(
+          {
+            completedRuns: summary.runs.length,
+            runs: config.runs,
+            until: config.until,
+            signalReceived: signal?.aborted ?? false,
+          },
+          now(),
+        );
+        // 次のループで止まるとわかっているなら、最後の実行の後に待つ意味はない。
+        if (next === null) await sleep(config.interval, signal);
+      }
     }
   } finally {
     summary.meta.finishedAt = now().toISOString();
@@ -111,7 +126,14 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
 async function launchBrowser(config: ResolvedConfig): Promise<Browser> {
   try {
-    return await launchers[config.browser].launch({ headless: config.headless });
+    return await launchers[config.browser].launch({
+      headless: config.headless,
+      // Playwright 自身の SIGINT/SIGTERM/SIGHUP ハンドラに任せると、runner の finally より先に
+      // ブラウザを閉じて process.exit してしまい、summary.json を確定できない。CLI 側で処理する。
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     throw new BrowserLaunchError(
@@ -130,12 +152,31 @@ async function executeRun(
 ): Promise<RunSummary> {
   const harPath = `run-${String(index).padStart(6, "0")}.har`;
   const harAbsPath = path.join(outDir, harPath);
-  const context = await browser.newContext({
-    recordHar: { path: harAbsPath, content: config.harContent },
-  });
-
   const startedAt = now();
   const t0 = performance.now();
+
+  // ループ先頭の isConnected() チェックと newContext の間で切断が起きても、例外を素通しせず
+  // 通常のエラー実行として記録する。次のループ先頭で再起動判定が行われる。
+  let context: BrowserContext;
+  try {
+    context = await browser.newContext({
+      recordHar: { path: harAbsPath, content: config.harContent },
+    });
+  } catch (e) {
+    return {
+      index,
+      startedAt: startedAt.toISOString(),
+      endedAt: now().toISOString(),
+      durationMs: performance.now() - t0,
+      harPath,
+      requestCount: 0,
+      failedRequestCount: 0,
+      transferBytes: 0,
+      status: "error",
+      error: `コンテキストを作成できませんでした: ${errorMessage(e)}`,
+    };
+  }
+
   let status: RunSummary["status"] = "ok";
   let error: string | null = null;
 

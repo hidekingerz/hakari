@@ -19,7 +19,7 @@ import { defineConfig } from "@hakari/har-bench";
 
 export default defineConfig({
   runs: 5,                              // 回数。"unlimited" で無制限。既定 1
-  until: "2026-09-07T03:00:00+09:00",   // 任意。ISO 8601 か "HH:mm"（今日、過ぎていれば翌日）
+  until: "06:00",                       // 任意。"HH:mm"（今日、過ぎていれば翌日）または ISO 8601
   interval: 0,                          // 任意。実行間の待機 ms
   browser: "chromium",                  // chromium | firefox | webkit
   headless: true,
@@ -44,6 +44,15 @@ CLI オプションは設定ファイルより優先されます。Ctrl+C を押
 
 毎回新しいブラウザコンテキストで実行するため、キャッシュや Cookie は持ち越されません。
 
+### モノレポ内での実行
+
+`@hakari/har-bench` はルートの `devDependencies` にも `workspace:*` で追加されているため、`pnpm install` 後はリポジトリルートからも実行できます。
+
+```bash
+pnpm build
+pnpm exec hakari-har-bench run --config <path/to/har-bench.config.ts>
+```
+
 ## 出力
 
 ```
@@ -59,7 +68,7 @@ har-bench-out/2026-09-06T13-05-22.123Z/
 - `runs[]`: 実行ごとの開始・終了時刻、所要時間 (ms)、HAR パス、リクエスト数、失敗リクエスト数（ネットワークエラーまたは HTTP 4xx/5xx）、転送バイト数、ステータス
 - `aggregate`: `ok` の実行に対する所要時間・リクエスト数・転送バイト数の min / max / mean / median / p95
 
-終了コード: 正常 0、`error` の実行があれば 1、設定エラー・ブラウザ起動失敗・致命的エラーは 2。
+終了コード: 正常 0、`error` の実行があれば 1、設定エラー・ブラウザ起動失敗・致命的エラーは 2。`heatmap` の入力エラー（summary.json が読めない・不正な形式など）も 2。
 
 ## ヒートマップ
 

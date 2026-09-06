@@ -3,8 +3,11 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { performance } from "node:perf_hooks";
+import { webkit } from "playwright";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { resolveConfig } from "../src/config.js";
+import { generateHeatmap } from "../src/heatmap/cli.js";
 import { BrowserLaunchError, run } from "../src/runner.js";
 import type { HarBenchConfig, Summary } from "../src/types.js";
 
@@ -46,6 +49,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(tmpDir, { recursive: true, force: true });
+  vi.restoreAllMocks();
 });
 
 function config(overrides: Partial<HarBenchConfig> = {}) {
@@ -164,7 +168,9 @@ describe("run", () => {
   });
 
   test("ブラウザの起動に失敗すると BrowserLaunchError で reject し、summary.json に fatal を記録する", async () => {
-    // webkit はこの環境に未インストールなので、起動失敗を確実に再現できる。
+    // 実行環境に webkit が入っていても再現できるよう、起動失敗をモックする。
+    // runner.ts は playwright モジュールの同じ webkit オブジェクトを launchers マップ経由で使う。
+    vi.spyOn(webkit, "launch").mockRejectedValueOnce(new Error("Executable doesn't exist"));
     const fixedNow = new Date("2024-01-01T00:00:00.000Z");
     let thrown: unknown;
     try {
@@ -200,5 +206,38 @@ describe("run", () => {
       version: "0.0.0-test",
     });
     expect(started[1] - started[0]).toBeGreaterThanOrEqual(500);
+  });
+
+  test("最後の実行の後は interval を待たずに終了する", async () => {
+    const t0 = performance.now();
+    const result = await run({
+      config: config({
+        runs: 1,
+        interval: 2000,
+        scenario: async (page) => {
+          await page.goto(baseUrl);
+        },
+      }),
+      version: "0.0.0-test",
+    });
+    const elapsed = performance.now() - t0;
+
+    expect(result.summary.runs).toHaveLength(1);
+    expect(elapsed).toBeLessThan(1500);
+  });
+
+  test("run の出力を heatmap に渡すと heatmap.html が生成される", async () => {
+    const result = await run({ config: config({ runs: 2 }), version: "0.0.0-test" });
+
+    const { outPath } = await generateHeatmap({
+      input: path.join(result.outDir, "summary.json"),
+      metric: "run-errors",
+      tz: "utc",
+    });
+
+    expect(outPath).toBe(path.join(result.outDir, "heatmap.html"));
+    const html = await readFile(outPath, "utf8");
+    expect(html).toContain("<svg");
+    expect(html).toContain(result.summary.runs[0].startedAt.slice(0, 10));
   });
 });

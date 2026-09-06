@@ -1,11 +1,14 @@
-import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execFile, spawn } from "node:child_process";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
 import { createRequire } from "node:module";
+import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import type { Summary } from "../src/types.js";
 import { makeRun } from "./helpers.js";
 
 const execFileAsync = promisify(execFile);
@@ -38,6 +41,22 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
+});
+
+let server: Server;
+let baseUrl: string;
+
+beforeAll(async () => {
+  server = createServer((_req, res) => {
+    res.setHeader("content-type", "text/html; charset=utf-8");
+    res.end("<!doctype html><html><body>ok</body></html>");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+});
+
+afterAll(async () => {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
 describe("hakari-har-bench heatmap", () => {
@@ -99,5 +118,59 @@ describe("hakari-har-bench run", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("run");
     expect(result.stdout).toContain("heatmap");
+  });
+
+  test("SIGINT を受けると実行中の回を終えてから summary.json を確定して終了する", async () => {
+    await writeFile(
+      path.join(dir, "har-bench.config.ts"),
+      `export default {
+  runs: "unlimited",
+  outDir: ${JSON.stringify(dir)},
+  scenario: async (page) => {
+    await page.goto(${JSON.stringify(baseUrl)}, { waitUntil: "networkidle" });
+  },
+};
+`,
+    );
+
+    const child = spawn(process.execPath, ["--import", tsxLoader, cliPath, "run"], { cwd: dir });
+    let stderr = "";
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
+    // 1 回目の実行が完了したことを示すログが出るまで待ってから SIGINT を送る
+    await new Promise<void>((resolve, reject) => {
+      const timer = setInterval(() => {
+        if (stderr.includes("run 1:")) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 50);
+      child.once("exit", (code) => {
+        clearInterval(timer);
+        reject(new Error(`run 1 のログが出る前に終了しました（code=${code}）\n${stderr}`));
+      });
+    });
+    child.kill("SIGINT");
+
+    const exitCode = await new Promise<number | null>((resolve) => {
+      child.once("exit", (code) => resolve(code));
+    });
+    expect(exitCode).toBe(0);
+
+    const entries = await readdir(dir);
+    const outSubDir = entries.find((name) => name !== "har-bench.config.ts");
+    if (!outSubDir) throw new Error(`出力ディレクトリが見つかりません: ${entries.join(", ")}`);
+    const summary = JSON.parse(
+      await readFile(path.join(dir, outSubDir, "summary.json"), "utf8"),
+    ) as Summary;
+
+    expect(summary.meta.stopReason).toBe("signal");
+    expect(summary.meta.finishedAt).not.toBeNull();
+    expect(summary.runs.length).toBeGreaterThanOrEqual(1);
+    for (const r of summary.runs) {
+      expect(r.status).toBe("ok");
+    }
   });
 });
