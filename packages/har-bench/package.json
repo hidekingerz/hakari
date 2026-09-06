@@ -1,0 +1,35 @@
+{
+  "name": "@hakari/har-bench",
+  "version": "0.1.0",
+  "description": "Playwright シナリオを繰り返し実行し、HAR と summary.json、ヒートマップを出力する計測ツール",
+  "type": "module",
+  "bin": {
+    "hakari-har-bench": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "commander": "^15.0.0",
+    "jiti": "^2.7.0",
+    "playwright": "^1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.23.13",
+    "vitest": "^4.1.11"
+  }
+}
