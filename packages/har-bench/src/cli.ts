@@ -2,6 +2,8 @@
 import { createRequire } from "node:module";
 import { Command, InvalidArgumentError } from "commander";
 import { type CliOverrides, ConfigError, loadConfigFile, resolveConfig } from "./config.js";
+import { collectFailures } from "./failures/cli.js";
+import { formatJson, formatText } from "./failures/format.js";
 import type { HeatmapMetric, HeatmapTz } from "./heatmap/bucket.js";
 import { generateHeatmap } from "./heatmap/cli.js";
 import { SummaryInputError } from "./read-summary.js";
@@ -12,7 +14,9 @@ const { version } = require("../package.json") as { version: string };
 
 const program = new Command()
   .name("hakari-har-bench")
-  .description("Playwright シナリオを繰り返し実行し、HAR と summary.json、ヒートマップを出力する")
+  .description(
+    "Playwright シナリオを繰り返し実行し、HAR と summary.json、ヒートマップ、失敗一覧を出力する",
+  )
   .version(version);
 
 program
@@ -83,6 +87,21 @@ program
     console.error(
       `ヒートマップを書き出しました: ${outPath}（${data.dates.length} 日, 最大 ${data.max}）`,
     );
+  });
+
+program
+  .command("failures")
+  .description("summary.json と HAR から、error になった実行と失敗リクエストを一覧する")
+  .argument("<summary>", "summary.json のパス")
+  .option("--json", "テキストではなく JSON で出力する")
+  .option("--no-requests", "HAR を走査せず、error になった実行だけを出す")
+  .action(async (summary: string, opts: { json?: boolean; requests: boolean }) => {
+    const report = await collectFailures({
+      input: summary,
+      requests: opts.requests,
+      warn: (message) => console.error(`警告: ${message}`),
+    });
+    process.stdout.write(opts.json ? formatJson(report) : formatText(report));
   });
 
 function choice<T extends string>(choices: readonly T[]) {
