@@ -3,7 +3,8 @@ import { createRequire } from "node:module";
 import { Command, InvalidArgumentError } from "commander";
 import { type CliOverrides, ConfigError, loadConfigFile, resolveConfig } from "./config.js";
 import type { HeatmapMetric, HeatmapTz } from "./heatmap/bucket.js";
-import { generateHeatmap, HeatmapInputError } from "./heatmap/cli.js";
+import { generateHeatmap } from "./heatmap/cli.js";
+import { SummaryInputError } from "./read-summary.js";
 import { BrowserLaunchError, run } from "./runner.js";
 
 const require = createRequire(import.meta.url);
@@ -97,7 +98,7 @@ program.parseAsync(process.argv).catch((e: unknown) => {
   if (
     e instanceof ConfigError ||
     e instanceof BrowserLaunchError ||
-    e instanceof HeatmapInputError
+    e instanceof SummaryInputError
   ) {
     console.error(`エラー: ${e.message}`);
     process.exit(2);
