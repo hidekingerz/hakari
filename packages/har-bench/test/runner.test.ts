@@ -7,6 +7,7 @@ import { performance } from "node:perf_hooks";
 import { webkit } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { resolveConfig } from "../src/config.js";
+import { collectFailures } from "../src/failures/cli.js";
 import { generateHeatmap } from "../src/heatmap/cli.js";
 import { BrowserLaunchError, run } from "../src/runner.js";
 import type { HarBenchConfig, Summary } from "../src/types.js";
@@ -239,5 +240,45 @@ describe("run", () => {
     const html = await readFile(outPath, "utf8");
     expect(html).toContain("<svg");
     expect(html).toContain(result.summary.runs[0].startedAt.slice(0, 10));
+  });
+
+  test("run の出力を failures に渡すと error 実行と失敗リクエストが拾える", async () => {
+    let calls = 0;
+    const result = await run({
+      config: config({
+        runs: 2,
+        scenario: async (page) => {
+          calls += 1;
+          await page.goto(baseUrl, { waitUntil: "networkidle" });
+          if (calls === 2) throw new Error("2 回目だけ失敗\n詳細行");
+        },
+      }),
+      version: "0.0.0-test",
+    });
+
+    const warnings: string[] = [];
+    const report = await collectFailures({
+      input: path.join(result.outDir, "summary.json"),
+      requests: true,
+      warn: (m) => warnings.push(m),
+    });
+
+    expect(warnings).toEqual([]);
+    expect(report.totalRuns).toBe(2);
+    expect(report.errorRuns).toEqual([
+      {
+        index: 2,
+        startedAt: expect.any(String),
+        harPath: "run-000002.har",
+        error: "2 回目だけ失敗",
+      },
+    ]);
+    expect(report.scannedHars).toBe(2);
+    // /missing は両方の実行で 404 になる
+    const missing = report.failedRequests.filter((r) => r.url.endsWith("/missing"));
+    expect(missing.map((r) => [r.run, r.status])).toEqual([
+      [1, 404],
+      [2, 404],
+    ]);
   });
 });

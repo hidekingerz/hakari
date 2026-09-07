@@ -2,8 +2,11 @@
 import { createRequire } from "node:module";
 import { Command, InvalidArgumentError } from "commander";
 import { type CliOverrides, ConfigError, loadConfigFile, resolveConfig } from "./config.js";
+import { collectFailures } from "./failures/cli.js";
+import { formatJson, formatText } from "./failures/format.js";
 import type { HeatmapMetric, HeatmapTz } from "./heatmap/bucket.js";
-import { generateHeatmap, HeatmapInputError } from "./heatmap/cli.js";
+import { generateHeatmap } from "./heatmap/cli.js";
+import { SummaryInputError } from "./read-summary.js";
 import { BrowserLaunchError, run } from "./runner.js";
 
 const require = createRequire(import.meta.url);
@@ -11,7 +14,9 @@ const { version } = require("../package.json") as { version: string };
 
 const program = new Command()
   .name("hakari-har-bench")
-  .description("Playwright シナリオを繰り返し実行し、HAR と summary.json、ヒートマップを出力する")
+  .description(
+    "Playwright シナリオを繰り返し実行し、HAR と summary.json、ヒートマップ、失敗一覧を出力する",
+  )
   .version(version);
 
 program
@@ -84,6 +89,21 @@ program
     );
   });
 
+program
+  .command("failures")
+  .description("summary.json と HAR から、error になった実行と失敗リクエストを一覧する")
+  .argument("<summary>", "summary.json のパス")
+  .option("--json", "テキストではなく JSON で出力する")
+  .option("--no-requests", "HAR を走査せず、error になった実行だけを出す")
+  .action(async (summary: string, opts: { json?: boolean; requests: boolean }) => {
+    const report = await collectFailures({
+      input: summary,
+      requests: opts.requests,
+      warn: (message) => console.error(`警告: ${message}`),
+    });
+    process.stdout.write(opts.json ? formatJson(report) : formatText(report));
+  });
+
 function choice<T extends string>(choices: readonly T[]) {
   return (value: string): T => {
     if (!choices.includes(value as T)) {
@@ -97,7 +117,7 @@ program.parseAsync(process.argv).catch((e: unknown) => {
   if (
     e instanceof ConfigError ||
     e instanceof BrowserLaunchError ||
-    e instanceof HeatmapInputError
+    e instanceof SummaryInputError
   ) {
     console.error(`エラー: ${e.message}`);
     process.exit(2);

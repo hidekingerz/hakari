@@ -1,6 +1,6 @@
 # @hakari/har-bench
 
-Playwright のシナリオを繰り返し実行し、実行ごとの HAR ファイルと `summary.json`、日付×時間帯のエラー回数ヒートマップを出力する計測ツールです。
+Playwright のシナリオを繰り返し実行し、実行ごとの HAR ファイルと `summary.json`、日付×時間帯のエラー回数ヒートマップ、失敗の一覧を出力する計測ツールです。
 
 ## セットアップ
 
@@ -82,6 +82,28 @@ hakari-har-bench heatmap <summary.json> [--out <html>] [--metric run-errors|fail
 
 - `run-errors`（既定）: シナリオが例外で終わった実行の回数
 - `failed-requests`: 失敗リクエストの合計
+
+## 失敗の抽出
+
+```bash
+hakari-har-bench failures <summary.json> [--json] [--no-requests]
+```
+
+`summary.json` から `error` になった実行を、各実行の HAR から失敗リクエスト（ネットワークエラー、または HTTP 4xx/5xx）を集めて一覧します。
+
+```
+error の実行: 5 / 10
+  #3	2026-09-07T02:09:07.330Z	run-000003.har	locator.waitFor: Timeout 1500ms exceeded.
+
+失敗リクエスト: 10 件（HAR 10 ファイルを走査）
+  #1	2026-09-07T02:09:03.236Z	404	net::ERR_ABORTED	GET http://127.0.0.1:4321/missing.js
+  #3	2026-09-07T02:09:07.378Z	500		GET http://127.0.0.1:4321/
+```
+
+- エラーメッセージは 1 行目だけを表示します（`summary.json` には元のまま残ります）。
+- `--json` は `{ totalRuns, errorRuns, failedRequests, scannedHars }` を stdout に出します。`jq` などに渡せます。
+- `--no-requests` は HAR を読まず、`error` になった実行だけを出します（HAR が大量にあるときの時短用）。
+- HAR が見つからない実行は警告を stderr に出して飛ばします。失敗があっても終了コードは 0、`summary.json` が読めないときは 2 です。
 
 ## 開発
 

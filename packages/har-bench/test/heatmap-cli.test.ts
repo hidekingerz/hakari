@@ -2,7 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { generateHeatmap, HeatmapInputError } from "../src/heatmap/cli.js";
+import { generateHeatmap } from "../src/heatmap/cli.js";
+import { SummaryInputError } from "../src/read-summary.js";
 import type { Summary } from "../src/types.js";
 import { makeRun } from "./helpers.js";
 
@@ -70,13 +71,13 @@ describe("generateHeatmap", () => {
     await expect(readFile(out, "utf8")).resolves.toContain("<svg");
   });
 
-  test("読めないファイルは HeatmapInputError", async () => {
+  test("読めないファイルは SummaryInputError", async () => {
     await expect(
       generateHeatmap({ input: path.join(dir, "nope.json"), metric: "run-errors", tz: "utc" }),
-    ).rejects.toThrow(HeatmapInputError);
+    ).rejects.toThrow(SummaryInputError);
   });
 
-  test("JSON でない・tool が違う・runs が空 は HeatmapInputError", async () => {
+  test("JSON でない・tool が違う・runs が空 は SummaryInputError", async () => {
     const notJson = path.join(dir, "a.json");
     await writeFile(notJson, "{{{", "utf8");
     await expect(

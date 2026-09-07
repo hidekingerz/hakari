@@ -106,6 +106,93 @@ describe("hakari-har-bench heatmap", () => {
   });
 });
 
+describe("hakari-har-bench failures", () => {
+  async function writeFailuresFixture() {
+    const summaryPath = path.join(dir, "summary.json");
+    await writeFile(
+      summaryPath,
+      JSON.stringify({
+        meta: {
+          tool: "har-bench",
+          version: "0.1.0",
+          browser: "chromium",
+          headless: true,
+          runs: 2,
+          until: null,
+          interval: 0,
+          startedAt: "2026-09-06T10:00:00.000Z",
+          finishedAt: "2026-09-06T10:00:05.000Z",
+          stopReason: "count",
+        },
+        runs: [
+          makeRun({ index: 1, harPath: "run-000001.har", failedRequestCount: 1 }),
+          makeRun({
+            index: 2,
+            harPath: "run-000002.har",
+            status: "error",
+            error: "locator.waitFor: Timeout 1500ms exceeded.\nCall log:",
+          }),
+        ],
+        aggregate: {},
+      }),
+    );
+    const entry = (url: string, status: number, failureText?: string) => ({
+      startedDateTime: "2026-09-06T10:00:00.100Z",
+      request: { method: "GET", url },
+      response: failureText ? { status, _failureText: failureText } : { status },
+    });
+    await writeFile(
+      path.join(dir, "run-000001.har"),
+      JSON.stringify({
+        log: {
+          entries: [entry("http://x/", 200), entry("http://x/missing.js", 404, "net::ERR_ABORTED")],
+        },
+      }),
+    );
+    await writeFile(
+      path.join(dir, "run-000002.har"),
+      JSON.stringify({ log: { entries: [entry("http://x/", 500)] } }),
+    );
+    return summaryPath;
+  }
+
+  test("error の実行と失敗リクエストをテキストで一覧する", async () => {
+    const summaryPath = await writeFailuresFixture();
+    const result = await cli(["failures", summaryPath]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("error の実行: 1 / 2");
+    expect(result.stdout).toContain("locator.waitFor: Timeout 1500ms exceeded.");
+    expect(result.stdout).not.toContain("Call log");
+    expect(result.stdout).toContain("失敗リクエスト: 2 件（HAR 2 ファイルを走査）");
+    expect(result.stdout).toContain("net::ERR_ABORTED");
+    expect(result.stdout).toContain("GET http://x/missing.js");
+  });
+
+  test("--json は機械可読な JSON を stdout に出す", async () => {
+    const summaryPath = await writeFailuresFixture();
+    const result = await cli(["failures", summaryPath, "--json"]);
+    expect(result.code).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.totalRuns).toBe(2);
+    expect(parsed.errorRuns).toHaveLength(1);
+    expect(parsed.failedRequests.map((r: { status: number }) => r.status)).toEqual([404, 500]);
+  });
+
+  test("--no-requests は HAR を走査しない", async () => {
+    const summaryPath = await writeFailuresFixture();
+    const result = await cli(["failures", summaryPath, "--no-requests"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("error の実行: 1 / 2");
+    expect(result.stdout).not.toContain("失敗リクエスト");
+  });
+
+  test("存在しないファイルは終了コード 2", async () => {
+    const result = await cli(["failures", path.join(dir, "nope.json")]);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain("エラー");
+  });
+});
+
 describe("hakari-har-bench run", () => {
   test("設定ファイルが無ければ終了コード 2", async () => {
     const result = await cli(["run"], dir);
