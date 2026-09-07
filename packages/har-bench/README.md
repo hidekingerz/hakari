@@ -78,6 +78,8 @@ hakari-har-bench heatmap <summary.json> [--out <html>] [--metric run-errors|fail
 
 縦に日付、横に 0〜23 時を並べ、色の濃さでエラー回数を表す HTML を 1 ファイル出力します（既定は `summary.json` と同じディレクトリの `heatmap.html`）。セルにマウスを乗せると値と実行回数が見えます。灰色は実行がなかった時間帯です。
 
+![7 日間を 10 分おきに計測した例。深夜 2〜4 時と 3 日目の昼にエラーが集中している](docs/heatmap.png)
+
 - `run-errors`（既定）: シナリオが例外で終わった実行の回数
 - `failed-requests`: 失敗リクエストの合計
 
